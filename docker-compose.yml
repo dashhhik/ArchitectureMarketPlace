@@ -1,0 +1,18 @@
+name: marketplace
+
+services:
+  user-identity-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: user-identity-service
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
