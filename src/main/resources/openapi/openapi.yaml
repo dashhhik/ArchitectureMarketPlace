@@ -779,8 +779,8 @@ components:
         price:
           type: number
           format: decimal
+          x-go-type: float64
           minimum: 0.01
-          exclusiveMinimum: true
         stock:
           type: integer
           format: int32
@@ -811,8 +811,8 @@ components:
         price:
           type: number
           format: decimal
+          x-go-type: float64
           minimum: 0.01
-          exclusiveMinimum: true
         stock:
           type: integer
           format: int32
@@ -851,6 +851,7 @@ components:
         price:
           type: number
           format: decimal
+          x-go-type: float64
         stock:
           type: integer
           format: int32
@@ -955,6 +956,7 @@ components:
         price_at_order:
           type: number
           format: decimal
+          x-go-type: float64
 
     OrderResponse:
       type: object
@@ -983,9 +985,11 @@ components:
         total_amount:
           type: number
           format: decimal
+          x-go-type: float64
         discount_amount:
           type: number
           format: decimal
+          x-go-type: float64
         items:
           type: array
           items:
@@ -1016,11 +1020,12 @@ components:
         discount_value:
           type: number
           format: decimal
+          x-go-type: float64
           minimum: 0.01
-          exclusiveMinimum: true
         min_order_amount:
           type: number
           format: decimal
+          x-go-type: float64
           minimum: 0
         max_uses:
           type: integer
@@ -1061,9 +1066,11 @@ components:
         discount_value:
           type: number
           format: decimal
+          x-go-type: float64
         min_order_amount:
           type: number
           format: decimal
+          x-go-type: float64
         max_uses:
           type: integer
         current_uses:

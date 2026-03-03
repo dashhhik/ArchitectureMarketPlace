@@ -170,7 +170,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 
 		header := strings.TrimSpace(c.GetHeader("Authorization"))
 		if header == "" || !strings.HasPrefix(strings.ToLower(header), "bearer ") {
-			s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Access token is required", nil)
+			s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Access token is required", nil)
 			c.Abort()
 			return
 		}
@@ -181,7 +181,7 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 			tokenString = strings.TrimSpace(parts[1])
 		}
 		if tokenString == "" {
-			s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Access token is required", nil)
+			s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Access token is required", nil)
 			c.Abort()
 			return
 		}
@@ -195,15 +195,15 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		})
 		if err != nil {
 			if errors.Is(err, jwt.ErrTokenExpired) {
-				s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENEXPIRED, "Access token expired", nil)
+				s.writeError(c, http.StatusUnauthorized, api.TOKENEXPIRED, "Access token expired", nil)
 			} else {
-				s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Access token invalid", nil)
+				s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Access token invalid", nil)
 			}
 			c.Abort()
 			return
 		}
 		if !token.Valid || claims.UserID == 0 || claims.Role == "" {
-			s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Access token invalid", nil)
+			s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Access token invalid", nil)
 			c.Abort()
 			return
 		}
@@ -284,7 +284,7 @@ func (s *Server) currentUser(c *gin.Context) (int64, api.Role, bool) {
 func (s *Server) requireRole(c *gin.Context, allowed ...api.Role) bool {
 	_, role, ok := s.currentUser(c)
 	if !ok {
-		s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Access token invalid", nil)
+		s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Access token invalid", nil)
 		return false
 	}
 	for _, candidate := range allowed {
@@ -292,18 +292,19 @@ func (s *Server) requireRole(c *gin.Context, allowed ...api.Role) bool {
 			return true
 		}
 	}
-	s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "Access denied", nil)
+	s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "Access denied", nil)
 	return false
 }
 
 func (s *Server) writeError(c *gin.Context, status int, code api.ErrorCode, message string, details map[string]any) {
+	var detailsPtr *map[string]any
+	if len(details) > 0 {
+		detailsPtr = &details
+	}
 	resp := api.ErrorResponse{
 		ErrorCode: code,
 		Message:   message,
-		Details:   details,
-	}
-	if len(details) == 0 {
-		resp.Details = nil
+		Details:   detailsPtr,
 	}
 	c.JSON(status, resp)
 }
@@ -316,7 +317,7 @@ func (s *Server) writeValidationError(c *gin.Context, violations []fieldViolatio
 			"violation": v.Violation,
 		})
 	}
-	s.writeError(c, http.StatusBadRequest, api.ErrorCodeVALIDATIONERROR, "Validation failed", map[string]any{"fields": fields})
+	s.writeError(c, http.StatusBadRequest, api.VALIDATIONERROR, "Validation failed", map[string]any{"fields": fields})
 }
 
 func getEnv(key, fallback string) string {
@@ -405,7 +406,7 @@ func (s *Server) generateTokens(userID int64, role api.Role) (api.AuthTokensResp
 
 func validateRole(value api.Role) bool {
 	switch value {
-	case api.RoleUSER, api.RoleSELLER, api.RoleADMIN:
+	case api.USER, api.SELLER, api.ADMIN:
 		return true
 	default:
 		return false
@@ -414,7 +415,7 @@ func validateRole(value api.Role) bool {
 
 func validateProductStatus(value api.ProductStatus) bool {
 	switch value {
-	case api.ProductStatusACTIVE, api.ProductStatusINACTIVE, api.ProductStatusARCHIVED:
+	case api.ACTIVE, api.INACTIVE, api.ARCHIVED:
 		return true
 	default:
 		return false
@@ -423,7 +424,7 @@ func validateProductStatus(value api.ProductStatus) bool {
 
 func validateOrderStatus(value api.OrderStatus) bool {
 	switch value {
-	case api.OrderStatusCREATED, api.OrderStatusPAYMENTPENDING, api.OrderStatusPAID, api.OrderStatusSHIPPED, api.OrderStatusCOMPLETED, api.OrderStatusCANCELED:
+	case api.CREATED, api.PAYMENTPENDING, api.PAID, api.SHIPPED, api.COMPLETED, api.CANCELED:
 		return true
 	default:
 		return false
@@ -432,7 +433,7 @@ func validateOrderStatus(value api.OrderStatus) bool {
 
 func validateDiscountType(value api.DiscountType) bool {
 	switch value {
-	case api.DiscountTypePERCENTAGE, api.DiscountTypeFIXEDAMOUNT:
+	case api.PERCENTAGE, api.FIXEDAMOUNT:
 		return true
 	default:
 		return false

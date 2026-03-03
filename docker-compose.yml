@@ -45,7 +45,7 @@ services:
       JWT_REFRESH_SECRET: super-secret-refresh
       JWT_ACCESS_TTL_MINUTES: 20
       JWT_REFRESH_TTL_DAYS: 14
-      ORDER_RATE_LIMIT_MINUTES: 5
+      ORDER_RATE_LIMIT_MINUTES: ${ORDER_RATE_LIMIT_MINUTES:-5}
     depends_on:
       flyway:
         condition: service_completed_successfully

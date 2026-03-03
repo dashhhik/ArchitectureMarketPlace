@@ -43,6 +43,54 @@ docker compose up --build
 - PostgreSQL: `localhost:5432`
 - Flyway применяется автоматически перед запуском API
 
+## Автоматизированная демонстрация для защиты
+
+Поднять стенд в фоне:
+
+```bash
+make demo-up
+make demo-wait
+```
+
+Базовый E2E (регистрация/логин, CRUD products, promo-code, create/get order):
+
+```bash
+make demo-e2e
+```
+
+Альтернативные сценарии (валидация, роли, ownership, stock, promo, state transition):
+
+```bash
+make demo-alt
+```
+
+Показ `SELECT` по ключевым таблицам:
+
+```bash
+make demo-db
+```
+
+Полный прогон:
+
+```bash
+make demo-all
+```
+
+Остановить и очистить:
+
+```bash
+make demo-down
+```
+
+Если нужно быстро показать `ORDER_HAS_ACTIVE` (без ожидания N минут), запускайте с:
+
+```bash
+ORDER_RATE_LIMIT_MINUTES=0 make demo-up
+make demo-wait
+make demo-e2e
+ORDER_RATE_LIMIT_MINUTES=0 make demo-alt
+```
+
 ## Базовый E2E сценарий для защиты
 
 1. Поднять систему:

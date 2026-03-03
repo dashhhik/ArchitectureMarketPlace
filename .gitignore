@@ -7,3 +7,6 @@ internal/api/openapi.gen.go
 
 # Environment
 .env
+
+# Demo artifacts
+.demo/

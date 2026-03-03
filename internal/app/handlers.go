@@ -39,7 +39,7 @@ func (s *Server) RegisterUser(c *gin.Context) {
 
 	passwordHash, err := hashPassword(req.Password)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeTOKENINVALID, "Failed to process password", nil)
+		s.writeError(c, http.StatusInternalServerError, api.TOKENINVALID, "Failed to process password", nil)
 		return
 	}
 
@@ -49,14 +49,14 @@ func (s *Server) RegisterUser(c *gin.Context) {
 		RETURNING id, email, role, created_at, updated_at`
 
 	var resp api.UserResponse
-	err = s.db.QueryRowContext(c.Request.Context(), query, strings.ToLower(req.Email), passwordHash, req.Role).
+	err = s.db.QueryRowContext(c.Request.Context(), query, strings.ToLower(string(req.Email)), passwordHash, req.Role).
 		Scan(&resp.Id, &resp.Email, &resp.Role, &resp.CreatedAt, &resp.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			s.writeValidationError(c, []fieldViolation{{Field: "email", Violation: "already exists"}})
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeTOKENINVALID, "Failed to register user", nil)
+		s.writeError(c, http.StatusInternalServerError, api.TOKENINVALID, "Failed to register user", nil)
 		return
 	}
 
@@ -82,28 +82,28 @@ func (s *Server) LoginUser(c *gin.Context) {
 		passwordHash string
 		role         api.Role
 	)
-	if err := s.db.QueryRowContext(c.Request.Context(), query, strings.ToLower(req.Email)).Scan(&userID, &passwordHash, &role); err != nil {
+	if err := s.db.QueryRowContext(c.Request.Context(), query, strings.ToLower(string(req.Email))).Scan(&userID, &passwordHash, &role); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Invalid credentials", nil)
+			s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Invalid credentials", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeTOKENINVALID, "Failed to login", nil)
+		s.writeError(c, http.StatusInternalServerError, api.TOKENINVALID, "Failed to login", nil)
 		return
 	}
 
 	if err := comparePassword(passwordHash, req.Password); err != nil {
-		s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Invalid credentials", nil)
+		s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Invalid credentials", nil)
 		return
 	}
 
 	tokens, err := s.generateTokens(userID, role)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeTOKENINVALID, "Failed to generate token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.TOKENINVALID, "Failed to generate token", nil)
 		return
 	}
 
 	if err := s.saveRefreshToken(c, userID, tokens.RefreshToken, tokens.RefreshExpiresAt); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeTOKENINVALID, "Failed to save refresh token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.TOKENINVALID, "Failed to save refresh token", nil)
 		return
 	}
 
@@ -126,7 +126,7 @@ func (s *Server) RefreshToken(c *gin.Context) {
 	claims := &Claims{}
 	token, err := jwtParse(req.RefreshToken, s.cfg.RefreshTokenSecret, claims)
 	if err != nil || !token.Valid {
-		s.writeError(c, http.StatusUnauthorized, api.ErrorCodeREFRESHTOKENINVALID, "Refresh token invalid", nil)
+		s.writeError(c, http.StatusUnauthorized, api.REFRESHTOKENINVALID, "Refresh token invalid", nil)
 		return
 	}
 
@@ -142,48 +142,48 @@ func (s *Server) RefreshToken(c *gin.Context) {
 	err = s.db.QueryRowContext(c.Request.Context(), findToken, hashToken(req.RefreshToken)).Scan(&userID, &expiresAt, &revoked)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusUnauthorized, api.ErrorCodeREFRESHTOKENINVALID, "Refresh token invalid", nil)
+			s.writeError(c, http.StatusUnauthorized, api.REFRESHTOKENINVALID, "Refresh token invalid", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeREFRESHTOKENINVALID, "Failed to refresh token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.REFRESHTOKENINVALID, "Failed to refresh token", nil)
 		return
 	}
 	if revoked || expiresAt.Before(time.Now().UTC()) || userID != claims.UserID {
-		s.writeError(c, http.StatusUnauthorized, api.ErrorCodeREFRESHTOKENINVALID, "Refresh token invalid", nil)
+		s.writeError(c, http.StatusUnauthorized, api.REFRESHTOKENINVALID, "Refresh token invalid", nil)
 		return
 	}
 
 	var role api.Role
 	if err = s.db.QueryRowContext(c.Request.Context(), `SELECT role FROM users WHERE id = $1`, userID).Scan(&role); err != nil {
-		s.writeError(c, http.StatusUnauthorized, api.ErrorCodeREFRESHTOKENINVALID, "Refresh token invalid", nil)
+		s.writeError(c, http.StatusUnauthorized, api.REFRESHTOKENINVALID, "Refresh token invalid", nil)
 		return
 	}
 
 	tokens, err := s.generateTokens(userID, role)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeREFRESHTOKENINVALID, "Failed to generate token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.REFRESHTOKENINVALID, "Failed to generate token", nil)
 		return
 	}
 
 	tx, err := s.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeREFRESHTOKENINVALID, "Failed to refresh token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.REFRESHTOKENINVALID, "Failed to refresh token", nil)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
 
 	if _, err = tx.ExecContext(c.Request.Context(), `UPDATE refresh_tokens SET revoked = TRUE WHERE token_hash = $1`, hashToken(req.RefreshToken)); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeREFRESHTOKENINVALID, "Failed to refresh token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.REFRESHTOKENINVALID, "Failed to refresh token", nil)
 		return
 	}
 
 	if _, err = tx.ExecContext(c.Request.Context(), `INSERT INTO refresh_tokens (user_id, token_hash, expires_at) VALUES ($1, $2, $3)`, userID, hashToken(tokens.RefreshToken), tokens.RefreshExpiresAt); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeREFRESHTOKENINVALID, "Failed to refresh token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.REFRESHTOKENINVALID, "Failed to refresh token", nil)
 		return
 	}
 
 	if err = tx.Commit(); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeREFRESHTOKENINVALID, "Failed to refresh token", nil)
+		s.writeError(c, http.StatusInternalServerError, api.REFRESHTOKENINVALID, "Failed to refresh token", nil)
 		return
 	}
 
@@ -191,7 +191,7 @@ func (s *Server) RefreshToken(c *gin.Context) {
 }
 
 func (s *Server) ListProducts(c *gin.Context, params api.ListProductsParams) {
-	if !s.requireRole(c, api.RoleUSER, api.RoleSELLER, api.RoleADMIN) {
+	if !s.requireRole(c, api.USER, api.SELLER, api.ADMIN) {
 		return
 	}
 
@@ -240,7 +240,7 @@ func (s *Server) ListProducts(c *gin.Context, params api.ListProductsParams) {
 	countQuery := "SELECT COUNT(*) FROM products WHERE " + whereClause
 	var total int64
 	if err := s.db.QueryRowContext(c.Request.Context(), countQuery, args...).Scan(&total); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to list products", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to list products", nil)
 		return
 	}
 
@@ -254,7 +254,7 @@ func (s *Server) ListProducts(c *gin.Context, params api.ListProductsParams) {
 
 	rows, err := s.db.QueryContext(c.Request.Context(), selectQuery, args...)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to list products", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to list products", nil)
 		return
 	}
 	defer rows.Close()
@@ -263,7 +263,7 @@ func (s *Server) ListProducts(c *gin.Context, params api.ListProductsParams) {
 	for rows.Next() {
 		product, scanErr := scanProduct(rows)
 		if scanErr != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to list products", nil)
+			s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to list products", nil)
 			return
 		}
 		items = append(items, product)
@@ -278,7 +278,7 @@ func (s *Server) ListProducts(c *gin.Context, params api.ListProductsParams) {
 }
 
 func (s *Server) CreateProduct(c *gin.Context) {
-	if !s.requireRole(c, api.RoleSELLER, api.RoleADMIN) {
+	if !s.requireRole(c, api.SELLER, api.ADMIN) {
 		return
 	}
 
@@ -294,14 +294,14 @@ func (s *Server) CreateProduct(c *gin.Context) {
 
 	userID, role, ok := s.currentUser(c)
 	if !ok {
-		s.writeError(c, http.StatusUnauthorized, api.ErrorCodeTOKENINVALID, "Access token invalid", nil)
+		s.writeError(c, http.StatusUnauthorized, api.TOKENINVALID, "Access token invalid", nil)
 		return
 	}
 
 	sellerID := userID
-	if role == api.RoleSELLER {
+	if role == api.SELLER {
 		if req.SellerId != nil && *req.SellerId != userID {
-			s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "Seller can create only own products", nil)
+			s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "Seller can create only own products", nil)
 			return
 		}
 	} else if req.SellerId != nil {
@@ -340,7 +340,7 @@ func (s *Server) CreateProduct(c *gin.Context) {
 		&resp.UpdatedAt,
 	)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to create product", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to create product", nil)
 		return
 	}
 
@@ -348,23 +348,23 @@ func (s *Server) CreateProduct(c *gin.Context) {
 }
 
 func (s *Server) GetProductById(c *gin.Context, id int64) {
-	if !s.requireRole(c, api.RoleUSER, api.RoleSELLER, api.RoleADMIN) {
+	if !s.requireRole(c, api.USER, api.SELLER, api.ADMIN) {
 		return
 	}
 	product, err := s.getProduct(c, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, api.ErrorCodePRODUCTNOTFOUND, "Product not found", nil)
+			s.writeError(c, http.StatusNotFound, api.PRODUCTNOTFOUND, "Product not found", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to get product", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to get product", nil)
 		return
 	}
 	c.JSON(http.StatusOK, product)
 }
 
 func (s *Server) UpdateProductById(c *gin.Context, id int64) {
-	if !s.requireRole(c, api.RoleSELLER, api.RoleADMIN) {
+	if !s.requireRole(c, api.SELLER, api.ADMIN) {
 		return
 	}
 
@@ -382,14 +382,14 @@ func (s *Server) UpdateProductById(c *gin.Context, id int64) {
 	current, err := s.getProduct(c, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, api.ErrorCodePRODUCTNOTFOUND, "Product not found", nil)
+			s.writeError(c, http.StatusNotFound, api.PRODUCTNOTFOUND, "Product not found", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to update product", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to update product", nil)
 		return
 	}
-	if role == api.RoleSELLER && current.SellerId != userID {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "Seller can update only own products", nil)
+	if role == api.SELLER && current.SellerId != userID {
+		s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "Seller can update only own products", nil)
 		return
 	}
 
@@ -446,7 +446,7 @@ func (s *Server) UpdateProductById(c *gin.Context, id int64) {
 		&resp.UpdatedAt,
 	)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to update product", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to update product", nil)
 		return
 	}
 
@@ -454,7 +454,7 @@ func (s *Server) UpdateProductById(c *gin.Context, id int64) {
 }
 
 func (s *Server) ArchiveProductById(c *gin.Context, id int64) {
-	if !s.requireRole(c, api.RoleSELLER, api.RoleADMIN) {
+	if !s.requireRole(c, api.SELLER, api.ADMIN) {
 		return
 	}
 
@@ -462,14 +462,14 @@ func (s *Server) ArchiveProductById(c *gin.Context, id int64) {
 	current, err := s.getProduct(c, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, api.ErrorCodePRODUCTNOTFOUND, "Product not found", nil)
+			s.writeError(c, http.StatusNotFound, api.PRODUCTNOTFOUND, "Product not found", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to archive product", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to archive product", nil)
 		return
 	}
-	if role == api.RoleSELLER && current.SellerId != userID {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "Seller can archive only own products", nil)
+	if role == api.SELLER && current.SellerId != userID {
+		s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "Seller can archive only own products", nil)
 		return
 	}
 
@@ -493,7 +493,7 @@ func (s *Server) ArchiveProductById(c *gin.Context, id int64) {
 		&resp.UpdatedAt,
 	)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePRODUCTNOTFOUND, "Failed to archive product", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PRODUCTNOTFOUND, "Failed to archive product", nil)
 		return
 	}
 
@@ -501,13 +501,13 @@ func (s *Server) ArchiveProductById(c *gin.Context, id int64) {
 }
 
 func (s *Server) CreateOrder(c *gin.Context) {
-	if !s.requireRole(c, api.RoleUSER, api.RoleADMIN) {
+	if !s.requireRole(c, api.USER, api.ADMIN) {
 		return
 	}
 
 	userID, role, _ := s.currentUser(c)
-	if role == api.RoleSELLER {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "SELLER cannot create orders", nil)
+	if role == api.SELLER {
+		s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "SELLER cannot create orders", nil)
 		return
 	}
 
@@ -523,7 +523,7 @@ func (s *Server) CreateOrder(c *gin.Context) {
 
 	tx, err := s.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -532,10 +532,10 @@ func (s *Server) CreateOrder(c *gin.Context) {
 		return
 	}
 	if hasActive, checkErr := s.hasActiveOrder(c, tx, userID); checkErr != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 		return
 	} else if hasActive {
-		s.writeError(c, http.StatusConflict, api.ErrorCodeORDERHASACTIVE, "User already has active order", nil)
+		s.writeError(c, http.StatusConflict, api.ORDERHASACTIVE, "User already has active order", nil)
 		return
 	}
 
@@ -543,21 +543,21 @@ func (s *Server) CreateOrder(c *gin.Context) {
 	productIDs := sortedProductIDs(normalized)
 	products, err := s.lockProducts(c, tx, productIDs)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 		return
 	}
 
 	if missingID, ok := findMissingProductID(products, productIDs); ok {
-		s.writeError(c, http.StatusNotFound, api.ErrorCodePRODUCTNOTFOUND, fmt.Sprintf("Product %d not found", missingID), nil)
+		s.writeError(c, http.StatusNotFound, api.PRODUCTNOTFOUND, fmt.Sprintf("Product %d not found", missingID), nil)
 		return
 	}
 	if inactiveID, ok := findInactiveProductID(products, productIDs); ok {
-		s.writeError(c, http.StatusConflict, api.ErrorCodePRODUCTINACTIVE, fmt.Sprintf("Product %d is inactive", inactiveID), nil)
+		s.writeError(c, http.StatusConflict, api.PRODUCTINACTIVE, fmt.Sprintf("Product %d is inactive", inactiveID), nil)
 		return
 	}
 
 	if details, insufficient := findInsufficientStock(products, normalized); insufficient {
-		s.writeError(c, http.StatusConflict, api.ErrorCodeINSUFFICIENTSTOCK, "Insufficient stock for one or more products", map[string]any{"products": details})
+		s.writeError(c, http.StatusConflict, api.INSUFFICIENTSTOCK, "Insufficient stock for one or more products", map[string]any{"products": details})
 		return
 	}
 
@@ -575,9 +575,9 @@ func (s *Server) CreateOrder(c *gin.Context) {
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id`
 	var orderID int64
-	err = tx.QueryRowContext(c.Request.Context(), insertOrder, userID, string(api.OrderStatusCREATED), promoID, total, discount).Scan(&orderID)
+	err = tx.QueryRowContext(c.Request.Context(), insertOrder, userID, string(api.CREATED), promoID, total, discount).Scan(&orderID)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 		return
 	}
 
@@ -591,57 +591,57 @@ func (s *Server) CreateOrder(c *gin.Context) {
 			quantity,
 			product.Price,
 		); execErr != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+			s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 			return
 		}
 
 		if _, execErr := tx.ExecContext(c.Request.Context(), `UPDATE products SET stock = stock - $1 WHERE id = $2`, quantity, productID); execErr != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+			s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 			return
 		}
 	}
 
 	if _, err = tx.ExecContext(c.Request.Context(), `INSERT INTO user_operations (user_id, operation_type) VALUES ($1, 'CREATE_ORDER')`, userID); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 		return
 	}
 
 	if err = tx.Commit(); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 		return
 	}
 
 	order, err := s.loadOrderResponse(c.Request.Context(), s.db, orderID)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to create order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to create order", nil)
 		return
 	}
 	c.JSON(http.StatusCreated, order)
 }
 
 func (s *Server) GetOrderById(c *gin.Context, id int64) {
-	if !s.requireRole(c, api.RoleUSER, api.RoleADMIN) {
+	if !s.requireRole(c, api.USER, api.ADMIN) {
 		return
 	}
 
 	userID, role, _ := s.currentUser(c)
-	if role == api.RoleSELLER {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "SELLER cannot access orders", nil)
+	if role == api.SELLER {
+		s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "SELLER cannot access orders", nil)
 		return
 	}
 
 	order, err := s.loadOrderResponse(c.Request.Context(), s.db, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, api.ErrorCodeORDERNOTFOUND, "Order not found", nil)
+			s.writeError(c, http.StatusNotFound, api.ORDERNOTFOUND, "Order not found", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to load order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to load order", nil)
 		return
 	}
 
-	if role == api.RoleUSER && order.UserId != userID {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeORDEROWNERSHIPVIOLATION, "Order belongs to another user", nil)
+	if role == api.USER && order.UserId != userID {
+		s.writeError(c, http.StatusForbidden, api.ORDEROWNERSHIPVIOLATION, "Order belongs to another user", nil)
 		return
 	}
 
@@ -649,13 +649,13 @@ func (s *Server) GetOrderById(c *gin.Context, id int64) {
 }
 
 func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
-	if !s.requireRole(c, api.RoleUSER, api.RoleADMIN) {
+	if !s.requireRole(c, api.USER, api.ADMIN) {
 		return
 	}
 
 	userID, role, _ := s.currentUser(c)
-	if role == api.RoleSELLER {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "SELLER cannot update orders", nil)
+	if role == api.SELLER {
+		s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "SELLER cannot update orders", nil)
 		return
 	}
 
@@ -671,7 +671,7 @@ func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
 
 	tx, err := s.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -679,19 +679,19 @@ func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
 	order, err := s.lockOrder(tx, c, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, api.ErrorCodeORDERNOTFOUND, "Order not found", nil)
+			s.writeError(c, http.StatusNotFound, api.ORDERNOTFOUND, "Order not found", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 
-	if role == api.RoleUSER && order.UserID != userID {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeORDEROWNERSHIPVIOLATION, "Order belongs to another user", nil)
+	if role == api.USER && order.UserID != userID {
+		s.writeError(c, http.StatusForbidden, api.ORDEROWNERSHIPVIOLATION, "Order belongs to another user", nil)
 		return
 	}
-	if order.Status != api.OrderStatusCREATED {
-		s.writeError(c, http.StatusConflict, api.ErrorCodeINVALIDSTATETRANSITION, "Order can be updated only in CREATED status", nil)
+	if order.Status != api.CREATED {
+		s.writeError(c, http.StatusConflict, api.INVALIDSTATETRANSITION, "Order can be updated only in CREATED status", nil)
 		return
 	}
 
@@ -701,12 +701,12 @@ func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
 
 	existingItems, err := s.loadOrderItems(c.Request.Context(), tx, id)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 	for _, item := range existingItems {
 		if _, execErr := tx.ExecContext(c.Request.Context(), `UPDATE products SET stock = stock + $1 WHERE id = $2`, item.Quantity, item.ProductId); execErr != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+			s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 			return
 		}
 	}
@@ -715,32 +715,32 @@ func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
 	productIDs := sortedProductIDs(normalized)
 	products, err := s.lockProducts(c, tx, productIDs)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 
 	if missingID, ok := findMissingProductID(products, productIDs); ok {
-		s.writeError(c, http.StatusNotFound, api.ErrorCodePRODUCTNOTFOUND, fmt.Sprintf("Product %d not found", missingID), nil)
+		s.writeError(c, http.StatusNotFound, api.PRODUCTNOTFOUND, fmt.Sprintf("Product %d not found", missingID), nil)
 		return
 	}
 	if inactiveID, ok := findInactiveProductID(products, productIDs); ok {
-		s.writeError(c, http.StatusConflict, api.ErrorCodePRODUCTINACTIVE, fmt.Sprintf("Product %d is inactive", inactiveID), nil)
+		s.writeError(c, http.StatusConflict, api.PRODUCTINACTIVE, fmt.Sprintf("Product %d is inactive", inactiveID), nil)
 		return
 	}
 	if details, insufficient := findInsufficientStock(products, normalized); insufficient {
-		s.writeError(c, http.StatusConflict, api.ErrorCodeINSUFFICIENTSTOCK, "Insufficient stock for one or more products", map[string]any{"products": details})
+		s.writeError(c, http.StatusConflict, api.INSUFFICIENTSTOCK, "Insufficient stock for one or more products", map[string]any{"products": details})
 		return
 	}
 
 	for productID, quantity := range normalized {
 		if _, execErr := tx.ExecContext(c.Request.Context(), `UPDATE products SET stock = stock - $1 WHERE id = $2`, quantity, productID); execErr != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+			s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 			return
 		}
 	}
 
 	if _, err = tx.ExecContext(c.Request.Context(), `DELETE FROM order_items WHERE order_id = $1`, id); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 
@@ -752,20 +752,20 @@ func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
 	if order.PromoCodeID != nil {
 		promo, promoErr := s.lockPromoByID(c, tx, *order.PromoCodeID)
 		if promoErr != nil {
-			s.writeError(c, http.StatusUnprocessableEntity, api.ErrorCodePROMOCODEINVALID, "Promo code invalid", nil)
+			s.writeError(c, http.StatusUnprocessableEntity, api.PROMOCODEINVALID, "Promo code invalid", nil)
 			return
 		}
 
 		now := time.Now().UTC()
 		if !promo.Active || now.Before(promo.ValidFrom) || now.After(promo.ValidUntil) || promo.CurrentUses < 1 || promo.CurrentUses > promo.MaxUses {
-			s.writeError(c, http.StatusUnprocessableEntity, api.ErrorCodePROMOCODEINVALID, "Promo code invalid", nil)
+			s.writeError(c, http.StatusUnprocessableEntity, api.PROMOCODEINVALID, "Promo code invalid", nil)
 			return
 		}
 
 		if subtotal < promo.MinOrderAmount {
 			promoID = nil
 			if _, execErr := tx.ExecContext(c.Request.Context(), `UPDATE promo_codes SET current_uses = GREATEST(current_uses - 1, 0) WHERE id = $1`, promo.ID); execErr != nil {
-				s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+				s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 				return
 			}
 		} else {
@@ -784,7 +784,7 @@ func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
 			quantity,
 			product.Price,
 		); execErr != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+			s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 			return
 		}
 	}
@@ -793,42 +793,42 @@ func (s *Server) UpdateOrderById(c *gin.Context, id int64) {
 		UPDATE orders
 		SET promo_code_id = $1, total_amount = $2, discount_amount = $3
 		WHERE id = $4`, promoID, total, discount, id); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 
 	if _, err = tx.ExecContext(c.Request.Context(), `INSERT INTO user_operations (user_id, operation_type) VALUES ($1, 'UPDATE_ORDER')`, order.UserID); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 
 	if err = tx.Commit(); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 
 	resp, err := s.loadOrderResponse(c.Request.Context(), s.db, id)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to update order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to update order", nil)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
 }
 
 func (s *Server) CancelOrderById(c *gin.Context, id int64) {
-	if !s.requireRole(c, api.RoleUSER, api.RoleADMIN) {
+	if !s.requireRole(c, api.USER, api.ADMIN) {
 		return
 	}
 
 	userID, role, _ := s.currentUser(c)
-	if role == api.RoleSELLER {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeACCESSDENIED, "SELLER cannot cancel orders", nil)
+	if role == api.SELLER {
+		s.writeError(c, http.StatusForbidden, api.ACCESSDENIED, "SELLER cannot cancel orders", nil)
 		return
 	}
 
 	tx, err := s.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -836,61 +836,61 @@ func (s *Server) CancelOrderById(c *gin.Context, id int64) {
 	order, err := s.lockOrder(tx, c, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, api.ErrorCodeORDERNOTFOUND, "Order not found", nil)
+			s.writeError(c, http.StatusNotFound, api.ORDERNOTFOUND, "Order not found", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 		return
 	}
 
-	if role == api.RoleUSER && order.UserID != userID {
-		s.writeError(c, http.StatusForbidden, api.ErrorCodeORDEROWNERSHIPVIOLATION, "Order belongs to another user", nil)
+	if role == api.USER && order.UserID != userID {
+		s.writeError(c, http.StatusForbidden, api.ORDEROWNERSHIPVIOLATION, "Order belongs to another user", nil)
 		return
 	}
-	if order.Status != api.OrderStatusCREATED && order.Status != api.OrderStatusPAYMENTPENDING {
-		s.writeError(c, http.StatusConflict, api.ErrorCodeINVALIDSTATETRANSITION, "Order cannot be canceled from current status", nil)
+	if order.Status != api.CREATED && order.Status != api.PAYMENTPENDING {
+		s.writeError(c, http.StatusConflict, api.INVALIDSTATETRANSITION, "Order cannot be canceled from current status", nil)
 		return
 	}
 
 	items, err := s.loadOrderItems(c.Request.Context(), tx, id)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 		return
 	}
 	for _, item := range items {
 		if _, execErr := tx.ExecContext(c.Request.Context(), `UPDATE products SET stock = stock + $1 WHERE id = $2`, item.Quantity, item.ProductId); execErr != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+			s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 			return
 		}
 	}
 
 	if order.PromoCodeID != nil {
 		if _, err = tx.ExecContext(c.Request.Context(), `UPDATE promo_codes SET current_uses = GREATEST(current_uses - 1, 0) WHERE id = $1`, *order.PromoCodeID); err != nil {
-			s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+			s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 			return
 		}
 	}
 
 	if _, err = tx.ExecContext(c.Request.Context(), `UPDATE orders SET status = 'CANCELED' WHERE id = $1`, id); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 		return
 	}
 
 	if err = tx.Commit(); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 		return
 	}
 
 	resp, err := s.loadOrderResponse(c.Request.Context(), s.db, id)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to cancel order", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to cancel order", nil)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
 }
 
 func (s *Server) TransitionOrderStatus(c *gin.Context, id int64) {
-	if !s.requireRole(c, api.RoleADMIN) {
+	if !s.requireRole(c, api.ADMIN) {
 		return
 	}
 
@@ -906,7 +906,7 @@ func (s *Server) TransitionOrderStatus(c *gin.Context, id int64) {
 
 	tx, err := s.db.BeginTx(c.Request.Context(), nil)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to transition order status", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to transition order status", nil)
 		return
 	}
 	defer func() { _ = tx.Rollback() }()
@@ -914,38 +914,38 @@ func (s *Server) TransitionOrderStatus(c *gin.Context, id int64) {
 	order, err := s.lockOrder(tx, c, id)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusNotFound, api.ErrorCodeORDERNOTFOUND, "Order not found", nil)
+			s.writeError(c, http.StatusNotFound, api.ORDERNOTFOUND, "Order not found", nil)
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to transition order status", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to transition order status", nil)
 		return
 	}
 
 	if !isValidStateTransition(order.Status, req.Status) {
-		s.writeError(c, http.StatusConflict, api.ErrorCodeINVALIDSTATETRANSITION, "Invalid state transition", nil)
+		s.writeError(c, http.StatusConflict, api.INVALIDSTATETRANSITION, "Invalid state transition", nil)
 		return
 	}
 
 	if _, err = tx.ExecContext(c.Request.Context(), `UPDATE orders SET status = $1 WHERE id = $2`, string(req.Status), id); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to transition order status", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to transition order status", nil)
 		return
 	}
 
 	if err = tx.Commit(); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to transition order status", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to transition order status", nil)
 		return
 	}
 
 	resp, err := s.loadOrderResponse(c.Request.Context(), s.db, id)
 	if err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to transition order status", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to transition order status", nil)
 		return
 	}
 	c.JSON(http.StatusOK, resp)
 }
 
 func (s *Server) CreatePromoCode(c *gin.Context) {
-	if !s.requireRole(c, api.RoleSELLER, api.RoleADMIN) {
+	if !s.requireRole(c, api.SELLER, api.ADMIN) {
 		return
 	}
 
@@ -1000,7 +1000,7 @@ func (s *Server) CreatePromoCode(c *gin.Context) {
 			s.writeValidationError(c, []fieldViolation{{Field: "code", Violation: "already exists"}})
 			return
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodePROMOCODEINVALID, "Failed to create promo code", nil)
+		s.writeError(c, http.StatusInternalServerError, api.PROMOCODEINVALID, "Failed to create promo code", nil)
 		return
 	}
 
@@ -1167,12 +1167,12 @@ func (s *Server) checkUserOperationRateLimit(c *gin.Context, tx *sql.Tx, userID 
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to check operation rate limit", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to check operation rate limit", nil)
 		return err
 	}
 
 	if time.Since(createdAt) < time.Duration(s.cfg.OrderRateLimitMinutes)*time.Minute {
-		s.writeError(c, http.StatusTooManyRequests, api.ErrorCodeORDERLIMITEXCEEDED, "Too many order operations", nil)
+		s.writeError(c, http.StatusTooManyRequests, api.ORDERLIMITEXCEEDED, "Too many order operations", nil)
 		return fmt.Errorf("rate limit exceeded")
 	}
 	return nil
@@ -1186,21 +1186,21 @@ func (s *Server) applyPromoCodeOnCreate(c *gin.Context, tx *sql.Tx, promoCode *s
 	promo, err := s.lockPromoByCode(c, tx, *promoCode)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			s.writeError(c, http.StatusUnprocessableEntity, api.ErrorCodePROMOCODEINVALID, "Promo code invalid", nil)
+			s.writeError(c, http.StatusUnprocessableEntity, api.PROMOCODEINVALID, "Promo code invalid", nil)
 			return nil, 0, subtotal, err
 		}
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to apply promo code", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to apply promo code", nil)
 		return nil, 0, subtotal, err
 	}
 
 	now := time.Now().UTC()
 	if !promo.Active || promo.CurrentUses >= promo.MaxUses || now.Before(promo.ValidFrom) || now.After(promo.ValidUntil) {
-		s.writeError(c, http.StatusUnprocessableEntity, api.ErrorCodePROMOCODEINVALID, "Promo code invalid", nil)
+		s.writeError(c, http.StatusUnprocessableEntity, api.PROMOCODEINVALID, "Promo code invalid", nil)
 		return nil, 0, subtotal, fmt.Errorf("promo invalid")
 	}
 
 	if subtotal < promo.MinOrderAmount {
-		s.writeError(c, http.StatusUnprocessableEntity, api.ErrorCodePROMOCODEMINAMOUNT, "Promo code minimum amount not reached", nil)
+		s.writeError(c, http.StatusUnprocessableEntity, api.PROMOCODEMINAMOUNT, "Promo code minimum amount not reached", nil)
 		return nil, 0, subtotal, fmt.Errorf("promo minimum amount")
 	}
 
@@ -1208,7 +1208,7 @@ func (s *Server) applyPromoCodeOnCreate(c *gin.Context, tx *sql.Tx, promoCode *s
 	total := subtotal - discount
 
 	if _, err = tx.ExecContext(c.Request.Context(), `UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = $1`, promo.ID); err != nil {
-		s.writeError(c, http.StatusInternalServerError, api.ErrorCodeORDERNOTFOUND, "Failed to apply promo code", nil)
+		s.writeError(c, http.StatusInternalServerError, api.ORDERNOTFOUND, "Failed to apply promo code", nil)
 		return nil, 0, subtotal, err
 	}
 
@@ -1217,14 +1217,14 @@ func (s *Server) applyPromoCodeOnCreate(c *gin.Context, tx *sql.Tx, promoCode *s
 
 func calculateDiscount(subtotal float64, discountType api.DiscountType, value float64) float64 {
 	switch discountType {
-	case api.DiscountTypePERCENTAGE:
+	case api.PERCENTAGE:
 		discount := subtotal * value / 100
 		maxDiscount := subtotal * 0.70
 		if discount > maxDiscount {
 			discount = maxDiscount
 		}
 		return discount
-	case api.DiscountTypeFIXEDAMOUNT:
+	case api.FIXEDAMOUNT:
 		if value > subtotal {
 			return subtotal
 		}
@@ -1262,7 +1262,7 @@ func findMissingProductID(products map[int64]productLockRow, requested []int64) 
 
 func findInactiveProductID(products map[int64]productLockRow, requested []int64) (int64, bool) {
 	for _, id := range requested {
-		if product, ok := products[id]; ok && product.Status != api.ProductStatusACTIVE {
+		if product, ok := products[id]; ok && product.Status != api.ACTIVE {
 			return id, true
 		}
 	}
@@ -1380,10 +1380,10 @@ func isValidStateTransition(from, to api.OrderStatus) bool {
 		return true
 	}
 	transitions := map[api.OrderStatus][]api.OrderStatus{
-		api.OrderStatusCREATED:        {api.OrderStatusPAYMENTPENDING},
-		api.OrderStatusPAYMENTPENDING: {api.OrderStatusPAID, api.OrderStatusCANCELED},
-		api.OrderStatusPAID:           {api.OrderStatusSHIPPED},
-		api.OrderStatusSHIPPED:        {api.OrderStatusCOMPLETED},
+		api.CREATED:        {api.PAYMENTPENDING},
+		api.PAYMENTPENDING: {api.PAID, api.CANCELED},
+		api.PAID:           {api.SHIPPED},
+		api.SHIPPED:        {api.COMPLETED},
 	}
 	allowed := transitions[from]
 	for _, next := range allowed {
@@ -1396,7 +1396,7 @@ func isValidStateTransition(from, to api.OrderStatus) bool {
 
 func validateRegisterRequest(req api.RegisterRequest) []fieldViolation {
 	violations := make([]fieldViolation, 0)
-	if l := len(strings.TrimSpace(req.Email)); l < 5 || l > 255 || !strings.Contains(req.Email, "@") {
+	if l := len(strings.TrimSpace(string(req.Email))); l < 5 || l > 255 || !strings.Contains(string(req.Email), "@") {
 		violations = append(violations, fieldViolation{Field: "email", Violation: "must be a valid email with length 5..255"})
 	}
 	if l := len(req.Password); l < 8 || l > 128 {
@@ -1410,7 +1410,7 @@ func validateRegisterRequest(req api.RegisterRequest) []fieldViolation {
 
 func validateLoginRequest(req api.LoginRequest) []fieldViolation {
 	violations := make([]fieldViolation, 0)
-	if l := len(strings.TrimSpace(req.Email)); l < 5 || l > 255 || !strings.Contains(req.Email, "@") {
+	if l := len(strings.TrimSpace(string(req.Email))); l < 5 || l > 255 || !strings.Contains(string(req.Email), "@") {
 		violations = append(violations, fieldViolation{Field: "email", Violation: "must be a valid email with length 5..255"})
 	}
 	if l := len(req.Password); l < 8 || l > 128 {
@@ -1435,8 +1435,8 @@ func validateProductCreate(req api.ProductCreate) []fieldViolation {
 	if req.Description != nil && len(*req.Description) > 4000 {
 		violations = append(violations, fieldViolation{Field: "description", Violation: "max length is 4000"})
 	}
-	if req.Price <= 0 {
-		violations = append(violations, fieldViolation{Field: "price", Violation: "must be greater than 0"})
+	if req.Price < 0.01 {
+		violations = append(violations, fieldViolation{Field: "price", Violation: "must be >= 0.01"})
 	}
 	if req.Stock < 0 {
 		violations = append(violations, fieldViolation{Field: "stock", Violation: "must be >= 0"})
@@ -1464,8 +1464,8 @@ func validateProductUpdate(req api.ProductUpdate) []fieldViolation {
 	if req.Description != nil && len(*req.Description) > 4000 {
 		violations = append(violations, fieldViolation{Field: "description", Violation: "max length is 4000"})
 	}
-	if req.Price != nil && *req.Price <= 0 {
-		violations = append(violations, fieldViolation{Field: "price", Violation: "must be greater than 0"})
+	if req.Price != nil && *req.Price < 0.01 {
+		violations = append(violations, fieldViolation{Field: "price", Violation: "must be >= 0.01"})
 	}
 	if req.Stock != nil && *req.Stock < 0 {
 		violations = append(violations, fieldViolation{Field: "stock", Violation: "must be >= 0"})
@@ -1525,8 +1525,8 @@ func validatePromoCodeCreate(req api.PromoCodeCreateRequest) []fieldViolation {
 	if !validateDiscountType(req.DiscountType) {
 		violations = append(violations, fieldViolation{Field: "discount_type", Violation: "invalid enum value"})
 	}
-	if req.DiscountValue <= 0 {
-		violations = append(violations, fieldViolation{Field: "discount_value", Violation: "must be greater than 0"})
+	if req.DiscountValue < 0.01 {
+		violations = append(violations, fieldViolation{Field: "discount_value", Violation: "must be >= 0.01"})
 	}
 	if req.MinOrderAmount < 0 {
 		violations = append(violations, fieldViolation{Field: "min_order_amount", Violation: "must be >= 0"})
