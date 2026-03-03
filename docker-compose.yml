@@ -1,18 +1,62 @@
 name: marketplace
 
 services:
-  user-identity-service:
+  postgres:
+    image: postgres:16-alpine
+    container_name: marketplace-postgres
+    environment:
+      POSTGRES_DB: marketplace
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d marketplace"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  flyway:
+    image: flyway/flyway:10.17.3
+    container_name: marketplace-flyway
+    command:
+      - "-url=jdbc:postgresql://postgres:5432/marketplace"
+      - "-user=postgres"
+      - "-password=postgres"
+      - "-connectRetries=30"
+      - "migrate"
+    volumes:
+      - ./internal/db/migrations:/flyway/sql
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  marketplace-service:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: user-identity-service
+    container_name: marketplace-service
+    environment:
+      PORT: 8000
+      DB_DSN: postgres://postgres:postgres@postgres:5432/marketplace?sslmode=disable
+      JWT_ACCESS_SECRET: super-secret-access
+      JWT_REFRESH_SECRET: super-secret-refresh
+      JWT_ACCESS_TTL_MINUTES: 20
+      JWT_REFRESH_TTL_DAYS: 14
+      ORDER_RATE_LIMIT_MINUTES: 5
+    depends_on:
+      flyway:
+        condition: service_completed_successfully
     ports:
       - "8000:8000"
-    environment:
-      - PORT=8000
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8000/health || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
-      start_period: 5s
+      start_period: 10s
+
+volumes:
+  postgres_data:

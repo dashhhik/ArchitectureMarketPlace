@@ -1,0 +1,9 @@
+# Build artifacts
+bin/
+*.out
+
+# Generated OpenAPI code
+internal/api/openapi.gen.go
+
+# Environment
+.env
